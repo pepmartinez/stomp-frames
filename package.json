@@ -1,0 +1,32 @@
+{
+  "name": "stomp-frames",
+  "version": "0.0.0",
+  "keywords": [
+    "stomp",
+    "socket"
+  ],
+  "homepage": "https://github.com/pepmartinez/stomp-frames",
+  "bugs": {
+    "url": "https://github.com/pepmartinez/stomp-frames/issues",
+    "email": "pep.martinez@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pepmartinez/stomp-frames.git"
+  },
+  "author": {
+    "name": "Jose Luis Martinez Juan",
+    "email": "pep.martinez@gmail.com"
+  },
+  "license": "GPL-3.0",
+  "dependencies": {
+    "buffers": "0.1.1"
+  },
+  "devDependencies": {
+    "mocha": "5.1.0",
+    "should": "13.2.1"
+  },
+  "scripts": {
+    "test": "mocha --reporter spec --check-leaks --no-timeouts --exit test/"
+  }
+}
