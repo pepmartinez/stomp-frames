@@ -1,7 +1,10 @@
 'use strict';
 
-var net = require('net');
+var net =     require('net');
 var Buffers = require ('buffers');
+var _ =       require ('lodash');
+
+var EventEmitter = require('events').EventEmitter;
 
 
 const RS_INIT =      1;
@@ -12,7 +15,7 @@ const RS_BODY_ZERO = 5;
 const RS_TRAIL =     6;
 
 
-const commands = {
+const Commands = {
   CONNECT:     1,
   STOMP:       2,
   CONNECTED:   3,
@@ -30,29 +33,88 @@ const commands = {
   ERROR: 15
 };
 
-class StompServerSession {
+
+class Frame {
+  constructor () {
+    this.clear ();
+  }
+
+  command (p) {
+    if (p) this._cmd = p; 
+    else return this._cmd;
+
+    // TODO check command validity?
+  }
+
+  headers (p) {
+    if (p) this._headers = p; 
+    else return this._headers;
+  }
+
+  body (p) {
+    if (p) this._body = p; 
+    else return this._body;
+
+    // TODO add encoding mgmt
+  }
+
+  header (k, v) {
+    if (v) this._headers[k] = v; 
+    else return this._headers[k];
+  }
+
+  ctype (v) {
+    if (v) this._headers['content-type'] = v; 
+    else return this._headers['content-type'];
+  }
+
+  clear () {
+    this._cmd = 0;
+    this._headers = {};
+    this._body = null;
+  }
+
+  write (socket, cb) {
+    // add calculated headers
+    if (this._body) {
+      this._headers['content-length'] = Buffer.byteLength (this._body) + '';
+    }
+
+    // dump command
+    var b = Buffers ();
+    b.push (Buffer.from (this._cmd + '\n'));
+
+    _.forEach (this._headers, function (v, k) {
+      b.push (Buffer.from (k + ': ' + v + '\n'));
+    });
+
+    if (this._body) {
+      b.push (Buffer.from ('\n' + this._body + '\0'));
+    }
+    else {
+      b.push (Buffer.from ('\n\0'));
+    }
+
+    socket.write (b.toBuffer (), cb);
+  }
+}
+
+
+
+class StompSession extends EventEmitter {
   constructor (socket) {
+    super ();
     this._s = socket;
 
     this._read_stage = RS_INIT;
     this._read_ptr = 0;
     this._read_buffer = Buffers();
 
-    this._in_frame = {
-      cmd: null,
-      hdrs: {},
-      body: null
-    }
+    this._in_frame = new Frame ();
 
     var self = this;
 
-    this._s.on('end',     function ()    {self._socket_end ()});
-    this._s.on('close',   function ()    {self._socket_close ()});
-    this._s.on('error',   function (err) {self._socket_error (err)});
-    this._s.on('timeout', function ()    {self._socket_timeout ();});
-
     this._s.on ('data', function (data) {
-console.log (data)
       self._read_buffer.push (data);  
       
       // TODO check a max size is buffered only
@@ -63,20 +125,19 @@ console.log (data)
   ///////////////////////////////
   _read_line () {
     if (this._read_buffer.length <= (this._read_ptr + 1)) {
-console.log ('empty buffer');
+      // console.log ('empty buffer');
       return null;
     }
 
     var idx = this._read_buffer.indexOf ('\n', this._read_ptr);
     if (idx == -1) {
-console.log ('no line left. buffer left is [%s]', this._read_buffer.slice (this._read_ptr));
+      // console.log ('no line left. buffer left is [%s]', this._read_buffer.slice (this._read_ptr));
       return null;
     }
 
     var line_buf = this._read_buffer.slice (this._read_ptr, idx + 1);
     var line = line_buf.toString ('utf8').trim ();
-//console.log ('read line [%s], old idx %d, new idx %d. %d bytes left in buffer', line, this._read_ptr, idx + 1, this._read_buffer.length - idx - 1);
-//console.log (line_buf)
+    // console.log ('read line [%s], old idx %d, new idx %d. %d bytes left in buffer', line, this._read_ptr, idx + 1, this._read_buffer.length - idx - 1);
     this._read_ptr = idx + 1;
     return line;
   }
@@ -88,8 +149,8 @@ console.log ('no line left. buffer left is [%s]', this._read_buffer.slice (this.
     var k = line.slice (0, sep).trim ().toLowerCase();
     var v = line.slice (sep + 1).trim ();
 
-    console.log ('added header [%s] -> [%s]', k, v);
-    this._in_frame.hdrs[k] = v;
+    // console.log ('added header [%s] -> [%s]', k, v);
+    this._in_frame.header (k, v);
     return true;
   }
 
@@ -103,9 +164,9 @@ console.log ('no line left. buffer left is [%s]', this._read_buffer.slice (this.
           if (line.length == 0) break; // empty lines before frame
 
           // TODO check command is valid & known
-          this._in_frame.cmd = line;
+          this._in_frame.command (line);
           this._read_stage = RS_HDRS;
-console.log ('cmd read, now moving to RS_HDRS');        
+          //console.log ('cmd read, now moving to RS_HDRS');        
           break;
 
         case RS_HDRS:
@@ -114,7 +175,7 @@ console.log ('cmd read, now moving to RS_HDRS');
           if (line.length == 0) {
             // move to read body
             this._read_stage = RS_BODY;
-console.log ('hdrs read, now moving to RS_BODY');
+            //console.log ('hdrs read, now moving to RS_BODY');
           }
           else {
             // TODO check header is not malformed
@@ -124,9 +185,9 @@ console.log ('hdrs read, now moving to RS_BODY');
 
         case RS_BODY:
           // see if we got content-len or not
-          if (this._in_frame.hdrs ['content-length']) {
-            this._in_frame.clen = parseInt (this._in_frame.hdrs ['content-length']);
-console.log ('content-len seen to be %d', this._in_frame.clen);
+          if (this._in_frame.header ('content-length')) {
+            this._in_frame.clen = parseInt (this._in_frame.header ('content-length'));
+            //console.log ('content-len seen to be %d', this._in_frame.clen);
             this._read_stage = RS_BODY_CL;
           } 
           else {
@@ -135,27 +196,39 @@ console.log ('content-len seen to be %d', this._in_frame.clen);
           break;
 
         case RS_BODY_CL:
+          // console.log ('buffer remaining is %d bytes, need %d', this._read_buffer.length - this._read_ptr, this._in_frame.clen);
+          if ((this._read_buffer.length - this._read_ptr) < (this._in_frame.clen + 1)) return;
+          this._in_frame.body (this._read_buffer.slice (this._read_ptr, this._in_frame.clen + this._read_ptr).toString ('utf8'));
+          
+          // reset buffer & ptr
+          var rem_buffer = this._read_buffer.slice (this._in_frame.clen + this._read_ptr + 1);
+          this._read_buffer = Buffers();
+          this._read_buffer.push (rem_buffer);
+          this._read_ptr = 0;
+          this._read_stage = RS_INIT;
+          delete this._in_frame.clen;
+
+          this.emit ('frame', this._in_frame);
+
+          this._in_frame = new Frame ();
           break;
 
         case RS_BODY_ZERO:
           var idx = this._read_buffer.indexOf ('\0', this._read_ptr);
           if (idx < 0) return;
 
-          this._in_frame.body = this._read_buffer.slice (this._read_ptr, idx).toString ('utf8').trim ();
+          this._in_frame.body (this._read_buffer.slice (this._read_ptr, idx).toString ('utf8'));
 
           // reset buffer & ptr
-//          var new_buffs = Buffers ();
-
-//          if (this._read_buffer.length)
-
-
           var rem_buffer = this._read_buffer.slice (idx + 1);
           this._read_buffer = Buffers();
           this._read_buffer.push (rem_buffer);
           this._read_ptr = 0;
           this._read_stage = RS_INIT;
 
-console.log ('frame', this._in_frame)          
+          this.emit ('frame', this._in_frame);
+
+          this._in_frame = new Frame ();
           break;
 
         case RS_TRAIL:
@@ -163,71 +236,10 @@ console.log ('frame', this._in_frame)
       }
     }
   }
-
-  _socket_end () {
-    console.log ('connection ended');
-  }
-
-  _socket_close () {
-    console.log ('connection severed');
-  }
-
-  _socket_error (err) {
-    console.log ('connection error:', err);
-  }
-
-  _socket_timeout () {
-    console.log ('connection idle for too long', err);
-  }
 }
 
 
-var server = net.createServer(function(socket) {
-  console.log ('connection established');
-  new StompServerSession(socket);
-});
-
-server.listen(1337);
-
-
-
-
-
-
-
-var client = new net.Socket();
-client.connect(1337, '127.0.0.1', function() {
-	console.log('CL Connected');
-  client.write(
-`
-
-COMMD
-x-aaa: 666
-x-g: trytyt
-CotE  :  to
-
-data dta
-gwgwegrwe
-gewggwer
-gwer
-e
-we
-rwe
-yewry
-` + '\0\r\n\r\n');
-
-client.on('data', function(data) {
-	console.log('CL Received: ' + data);
-	client.destroy(); // kill client after server's response
-});
-
-client.on('end', function() {
-	console.log('CL Connection end');
-});
-
-client.on('close', function() {
-	console.log('CL Connection closed');
-});
-
-});
-
+module.exports = {
+  Frame: Frame,
+  StompSession: StompSession
+};

@@ -20,11 +20,13 @@
   },
   "license": "GPL-3.0",
   "dependencies": {
-    "buffers": "0.1.1"
+    "buffers": "0.1.1",
+    "lodash": "4.17.5"
   },
   "devDependencies": {
     "mocha": "5.1.0",
-    "should": "13.2.1"
+    "should": "13.2.1",
+    "chance": "1.0.13"
   },
   "scripts": {
     "test": "mocha --reporter spec --check-leaks --no-timeouts --exit test/"
