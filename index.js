@@ -1,6 +1,6 @@
 'use strict';
 
-var net =     require('net');
+var util =    require ('util');
 var Buffers = require ('buffers');
 var _ =       require ('lodash');
 
@@ -31,6 +31,25 @@ const Commands = {
   MESSAGE:     'MESSAGE',
   RECEIPT:     'RECEIPT',
   ERROR:       'ERROR'
+};
+
+
+const MandatoryHeaders = {
+  CONNECT:     ['accept-version', 'host'],
+  STOMP:       ['accept-version', 'host'],
+  CONNECTED:   ['version'],
+  SEND:        ['destination'],
+  SUBSCRIBE:   ['destination', 'id'],
+  UNSUBSCRIBE: ['id'],
+  ACK:         ['id'],
+  NACK:        ['id'],
+  BEGIN:       ['transaction'],
+  COMMIT:      ['transaction'],
+  ABORT:       ['transaction'],
+  DISCONNECT:  [],
+  MESSAGE:     ['destination', 'message-id', 'subscription'],
+  RECEIPT:     ['receipt-id'],
+  ERROR:       [],
 };
 
 
@@ -107,6 +126,8 @@ class StompSession extends EventEmitter {
     super ();
     this._s = socket;
     this._clear_state();
+    
+    this._manage_errors = true;
 
     var self = this;
 
@@ -116,6 +137,12 @@ class StompSession extends EventEmitter {
       // TODO check a max size is buffered only
       self._incr_parse ();
     });
+  }
+
+  manage_errors (v) {
+    if (v === true) this._manage_errors = true;
+    else if (v === false) this._manage_errors = false;
+    else return this._manage_errors;
   }
 
   ///////////////////////////////
@@ -151,11 +178,65 @@ class StompSession extends EventEmitter {
   }
 
   ///////////////////////////////////////
+  _manage_error (e) {
+    this._clear_state ();
+
+    this.emit ('error', e);
+    
+    if (this._manage_errors) {
+      var f = new Frame ();
+      f.command (Commands.ERROR);
+      f.header ('message', e.message || e);
+      f.body (e.message || e);
+      f.write (this._s);
+      this._s.end ();
+    }
+  }
+
+  ///////////////////////////////////////
   _clear_state () {
     this._read_buffer = Buffers();
     this._read_ptr = 0;
     this._read_stage = RS_INIT;
     this._in_frame = new Frame ();
+  }
+
+  ///////////////////////////////////////
+  _semantic_validation () {
+    var must_have_headers = MandatoryHeaders[this._in_frame.command()];
+    if (!must_have_headers) return null;
+
+    for (var i = 0; i < must_have_headers.length; i++) {
+      var h = must_have_headers[i];
+      if (_.isUndefined (this._in_frame.header(h))) {
+        return util.format ('missing mandatory header [%s] on frame [%s]', h, this._in_frame.command());
+      }
+    }
+
+    return null;
+  }
+
+
+  ///////////////////////////////////////
+  _got_a_frame () {
+    var err = this._semantic_validation ();
+
+//    if (err) {
+//      this._manage_error (err);
+//      return false;
+//    }
+
+    var rem_buffer = this._read_buffer.slice (this._read_ptr);
+    this._read_buffer = Buffers();
+    this._read_buffer.push (rem_buffer);
+    this._read_ptr = 0;
+    this._read_stage = RS_INIT;
+    if (this._in_frame.clen) delete this._in_frame.clen;
+
+    this.emit ('frame', this._in_frame);
+
+    this._in_frame = new Frame ();
+    return true;
   }
 
   ///////////////////////////////////////
@@ -174,10 +255,8 @@ class StompSession extends EventEmitter {
             //console.log ('cmd read, now moving to RS_HDRS');
           }
           catch (e) {
-            // unknown command: send error, cut socket
-            this.emit ('error', e);
-            this._s.end ();
-            this._clear_state();
+            // unknown command:
+            this._manage_error (e);
           }        
           break;
 
@@ -213,16 +292,8 @@ class StompSession extends EventEmitter {
           this._in_frame.body (this._read_buffer.slice (this._read_ptr, this._in_frame.clen + this._read_ptr).toString ('utf8'));
           
           // reset buffer & ptr
-          var rem_buffer = this._read_buffer.slice (this._in_frame.clen + this._read_ptr + 1);
-          this._read_buffer = Buffers();
-          this._read_buffer.push (rem_buffer);
-          this._read_ptr = 0;
-          this._read_stage = RS_INIT;
-          delete this._in_frame.clen;
-
-          this.emit ('frame', this._in_frame);
-
-          this._in_frame = new Frame ();
+          this._read_ptr = this._in_frame.clen + this._read_ptr + 1;
+          this._got_a_frame ();
           break;
 
         case RS_BODY_ZERO:
@@ -232,15 +303,8 @@ class StompSession extends EventEmitter {
           this._in_frame.body (this._read_buffer.slice (this._read_ptr, idx).toString ('utf8'));
 
           // reset buffer & ptr
-          var rem_buffer = this._read_buffer.slice (idx + 1);
-          this._read_buffer = Buffers();
-          this._read_buffer.push (rem_buffer);
-          this._read_ptr = 0;
-          this._read_stage = RS_INIT;
-
-          this.emit ('frame', this._in_frame);
-
-          this._in_frame = new Frame ();
+          this._read_ptr = idx + 1;
+          this._got_a_frame ();
           break;
 
         case RS_TRAIL:

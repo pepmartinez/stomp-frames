@@ -29,6 +29,6 @@
     "chance": "1.0.13"
   },
   "scripts": {
-    "test": "mocha --reporter spec --check-leaks --no-timeouts --exit test/"
+    "test": "mocha --reporter spec --check-leaks --no-timeouts test/"
   }
 }

@@ -38,7 +38,7 @@ function frame() {
 }
 
 describe('STOMP frames', function () {
-  
+
   before(function (done) {
     done();
   });
@@ -99,7 +99,7 @@ describe('STOMP frames', function () {
       var ss = new SF.StompSession(socket);
       ss.on ('error', function (e) {
         e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
-        done();
+        server.close (done);
       });
     });
 
@@ -112,4 +112,38 @@ describe('STOMP frames', function () {
       fr.write (client);
     });
   });
+
+
+  it('does send error frame in parsing error', function (done) {
+    var server = net.createServer (function(socket) {
+      var ss = new SF.StompSession(socket);
+      ss.on ('error', function (e) {
+        e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
+      });
+    });
+
+    server.listen(36667);
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', function() {
+      var ss = new SF.StompSession(client);
+      ss.on ('frame', function (fe) {
+        fe.should.match ({
+          _cmd: 'ERROR',
+          _headers: { 
+            message: 'unrecognized STOMP command nonvalid',
+            'content-length': '35' 
+          },
+          _body: 'unrecognized STOMP command nonvalid' 
+        });
+
+        server.close (done);
+      });
+
+      var fr = frame ();
+      fr._cmd = 'nonvalid';
+      fr.write (client);
+    });
+  });
+
 });
