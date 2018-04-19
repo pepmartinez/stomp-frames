@@ -16,21 +16,21 @@ const RS_TRAIL =     6;
 
 
 const Commands = {
-  CONNECT:     1,
-  STOMP:       2,
-  CONNECTED:   3,
-  SEND:        4,
-  SUBSCRIBE:   5,
-  UNSUBSCRIBE: 6,
-  ACK:         7,
-  NACK: 8,
-  BEGIN: 9,
-  COMMIT: 10,
-  ABORT: 11,
-  DISCONNECT: 12,
-  MESSAGE: 13,
-  RECEIPT: 14,
-  ERROR: 15
+  CONNECT:     'CONNECT',
+  STOMP:       'STOMP',
+  CONNECTED:   'CONNECTED',
+  SEND:        'SEND',
+  SUBSCRIBE:   'SUBSCRIBE',
+  UNSUBSCRIBE: 'UNSUBSCRIBE',
+  ACK:         'ACK',
+  NACK:        'NACK',
+  BEGIN:       'BEGIN',
+  COMMIT:      'COMMIT',
+  ABORT:       'ABORT',
+  DISCONNECT:  'DISCONNECT',
+  MESSAGE:     'MESSAGE',
+  RECEIPT:     'RECEIPT',
+  ERROR:       'ERROR'
 };
 
 
@@ -40,10 +40,11 @@ class Frame {
   }
 
   command (p) {
-    if (p) this._cmd = p; 
+    if (p) {
+      if (!Commands[p]) throw Error ('unrecognized STOMP command ' + p);
+      this._cmd = p; 
+    }
     else return this._cmd;
-
-    // TODO check command validity?
   }
 
   headers (p) {
@@ -105,12 +106,7 @@ class StompSession extends EventEmitter {
   constructor (socket) {
     super ();
     this._s = socket;
-
-    this._read_stage = RS_INIT;
-    this._read_ptr = 0;
-    this._read_buffer = Buffers();
-
-    this._in_frame = new Frame ();
+    this._clear_state();
 
     var self = this;
 
@@ -155,6 +151,14 @@ class StompSession extends EventEmitter {
   }
 
   ///////////////////////////////////////
+  _clear_state () {
+    this._read_buffer = Buffers();
+    this._read_ptr = 0;
+    this._read_stage = RS_INIT;
+    this._in_frame = new Frame ();
+  }
+
+  ///////////////////////////////////////
   _incr_parse () {
     for (;;) {
       switch (this._read_stage) {
@@ -164,9 +168,17 @@ class StompSession extends EventEmitter {
           if (line.length == 0) break; // empty lines before frame
 
           // TODO check command is valid & known
-          this._in_frame.command (line);
-          this._read_stage = RS_HDRS;
-          //console.log ('cmd read, now moving to RS_HDRS');        
+          try {
+            this._in_frame.command (line);
+            this._read_stage = RS_HDRS;
+            //console.log ('cmd read, now moving to RS_HDRS');
+          }
+          catch (e) {
+            // unknown command: send error, cut socket
+            this.emit ('error', e);
+            this._s.end ();
+            this._clear_state();
+          }        
           break;
 
         case RS_HDRS:

@@ -11,7 +11,22 @@ var chance = new Chance();
 function frame() {
   var fr = new SF.Frame ();
 
-  fr.command(chance.pickone(['alpha', 'bravo', 'charlie', 'delta', 'echo']));
+  fr.command(chance.pickone([ 
+    'CONNECT', 
+    'STOMP', 
+    'CONNECTED',
+    'SEND',
+    'SUBSCRIBE',
+    'UNSUBSCRIBE', 
+    'ACK',
+    'NACK', 
+    'BEGIN',
+    'COMMIT',
+    'ABORT',
+    'DISCONNECT',
+    'MESSAGE',
+    'RECEIPT',
+    'ERROR']));
 
   for (var i = 0; i < chance.d20(); i++) {
     fr.header(chance.word(), chance.word());
@@ -23,15 +38,18 @@ function frame() {
 }
 
 describe('STOMP frames', function () {
+  
   before(function (done) {
     done();
   });
+
 
   after(function (done) {
     done();
   });
 
-  it('does travel fine over a socket', function (done) {
+
+  it('does travel fine over a socket (flow of 1111 random frames)', function (done) {
     var fr0 = [];
 
     for (var i = 0; i < 1111; i++) {
@@ -63,4 +81,35 @@ describe('STOMP frames', function () {
     });
   });
 
+
+  it('does fail when building frame with unknown command', function (done) {
+    var fr = frame ();
+    try {
+      fr.command ('nonvalid');
+    }
+    catch (e) {
+      e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
+      done();
+    }
+  });
+
+
+  it('does fail when parsing frame with unknown command', function (done) {
+    var server = net.createServer (function(socket) {
+      var ss = new SF.StompSession(socket);
+      ss.on ('error', function (e) {
+        e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
+        done();
+      });
+    });
+
+    server.listen(36667);
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', function() {
+      var fr = frame ();
+      fr._cmd = 'nonvalid';
+      fr.write (client);
+    });
+  });
 });
