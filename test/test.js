@@ -78,10 +78,10 @@ describe('STOMP frames', function () {
   });
 
 
-  it('does travel fine over a socket (flow of 1111 random frames)', function (done) {
+  it('does travel fine over a socket (flow of 11111 random frames)', function (done) {
     var fr0 = [];
 
-    for (var i = 0; i < 1111; i++) {
+    for (var i = 0; i < 11111; i++) {
       fr0.push (frame ());
     }
 

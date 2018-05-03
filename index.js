@@ -105,7 +105,7 @@ class Frame {
     b.push (Buffer.from (this._cmd + '\n'));
 
     _.forEach (this._headers, function (v, k) {
-      b.push (Buffer.from (k + ': ' + v + '\n'));
+      b.push (Buffer.from (k + ':' + v + '\n'));
     });
 
     if (this._body) {
@@ -169,8 +169,8 @@ class StompSession extends EventEmitter {
   _add_header_line (line) {
     var sep = line.indexOf (':');
     if (sep == -1) return false;
-    var k = line.slice (0, sep).trim ().toLowerCase();
-    var v = line.slice (sep + 1).trim ();
+    var k = line.slice (0, sep);
+    var v = line.slice (sep + 1);
 
     // console.log ('added header [%s] -> [%s]', k, v);
     this._in_frame.header (k, v);
