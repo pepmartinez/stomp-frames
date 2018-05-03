@@ -1,17 +1,35 @@
 var should = require('should');
-//var async = require('async');
-var _ = require('lodash');
-var net =     require('net');
+var _ =      require('lodash');
+var net =    require('net');
 var Chance = require('chance');
 
-var SF = require ('../')
+var SF = require ('../');
 
 var chance = new Chance();
+
+const MandatoryHeaders = {
+  CONNECT:     ['accept-version', 'host'],
+  STOMP:       ['accept-version', 'host'],
+  CONNECTED:   ['version'],
+  SEND:        ['destination'],
+  SUBSCRIBE:   ['destination', 'id'],
+  UNSUBSCRIBE: ['id'],
+  ACK:         ['id'],
+  NACK:        ['id'],
+  BEGIN:       ['transaction'],
+  COMMIT:      ['transaction'],
+  ABORT:       ['transaction'],
+  DISCONNECT:  [],
+  MESSAGE:     ['destination', 'message-id', 'subscription'],
+  RECEIPT:     ['receipt-id'],
+  ERROR:       [],
+};
 
 function frame() {
   var fr = new SF.Frame ();
 
-  fr.command(chance.pickone([ 
+  // get cmd
+  var cmd = chance.pickone([ 
     'CONNECT', 
     'STOMP', 
     'CONNECTED',
@@ -26,16 +44,27 @@ function frame() {
     'DISCONNECT',
     'MESSAGE',
     'RECEIPT',
-    'ERROR']));
+    'ERROR']);
+  
+  fr.command(cmd);
 
+  // add some extra headers
   for (var i = 0; i < chance.d20(); i++) {
     fr.header(chance.word(), chance.word());
   }
+  
+  // add mandatory headers
+  _.forEach (MandatoryHeaders[cmd], function (hdr) {
+    fr.header(hdr, chance.word());
+  });
 
   fr.body(chance.paragraph ());
 
   return fr;
 }
+
+
+
 
 describe('STOMP frames', function () {
 

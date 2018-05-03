@@ -221,10 +221,10 @@ class StompSession extends EventEmitter {
   _got_a_frame () {
     var err = this._semantic_validation ();
 
-//    if (err) {
-//      this._manage_error (err);
-//      return false;
-//    }
+    if (err) {
+      this._manage_error (err);
+      return false;
+    }
 
     var rem_buffer = this._read_buffer.slice (this._read_ptr);
     this._read_buffer = Buffers();
