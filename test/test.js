@@ -77,12 +77,39 @@ describe('STOMP frames', function () {
     done();
   });
 
+  it('does read with publishing mandatory headers', function (done) {
+    var server = net.createServer (function(socket) {
+      var ss = new SF.StompSession(socket);
 
-  it('does travel fine over a socket (flow of 11111 random frames)', function (done) {
+      ss.on ('frame', function (f) {
+        f.command().should.equal ('SUBSCRIBE');
+        f.destination.should.equal ('someplace');
+        f.id.should.equal ('meself');
+        socket.end();
+        server.close (done);
+      });
+    });
+
+    server.listen(36667);
+
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', function() {
+      var f = new SF.Frame ();
+      f.command ('SUBSCRIBE');
+      f.header ('destination', 'someplace');
+      f.header ('id', 'meself');
+      f.write (client);
+    });
+  });
+
+  it('does travel fine over a socket (flow of 1111 random frames)', function (done) {
     var fr0 = [];
 
-    for (var i = 0; i < 11111; i++) {
-      fr0.push (frame ());
+    for (var i = 0; i < 1111; i++) {
+      var f = frame();
+      f._semantic_validation();
+      fr0.push (f);
     }
 
     var frr = [];

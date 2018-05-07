@@ -79,7 +79,7 @@ class Frame {
   }
 
   header (k, v) {
-    if (v) this._headers[k] = v; 
+    if (v) this._headers[this._dec_hdr (k)] = this._dec_hdr (v); 
     else return this._headers[k];
   }
 
@@ -104,9 +104,7 @@ class Frame {
     var b = Buffers ();
     b.push (Buffer.from (this._cmd + '\n'));
 
-    _.forEach (this._headers, function (v, k) {
-      b.push (Buffer.from (k + ':' + v + '\n'));
-    });
+    _.forEach (this._headers, (v, k) => b.push (Buffer.from (this._enc_hdr (k) + ':' + this._enc_hdr (v) + '\n')));
 
     if (this._body) {
       b.push (Buffer.from ('\n' + this._body + '\0'));
@@ -116,6 +114,55 @@ class Frame {
     }
 
     socket.write (b.toBuffer (), cb);
+  }
+
+  _enc_hdr (v) {
+    var ret = v;
+
+    _.forEach ([
+      [/\\/g, '\\\\'],
+      [/\r/g, '\\r'],
+      [/\n/g, '\\n'],
+      [/:/g, '\\c']
+    ], function (subst) {
+      ret = ret.replace(subst[0], subst[1]);
+    });
+
+    return ret;
+  }
+
+  _dec_hdr (v) {
+    var ret = v;
+
+    _.forEach ({
+      '\\r': '\r', 
+      '\\n': '\n', 
+      '\\c': ':', 
+      '\\\\': '\\'
+    }, function (sub_v, sub_k) {
+      ret = ret.replace(sub_k, sub_v);
+    });
+
+    return ret;
+  }
+
+  _semantic_validation () {
+    var must_have_headers = MandatoryHeaders[this._cmd];
+    if (!must_have_headers) return null;
+
+    for (var i = 0; i < must_have_headers.length; i++) {
+      var h = must_have_headers[i];
+      var hv = this.header(h);
+
+      if (_.isUndefined (hv)) {
+        return util.format ('missing mandatory header [%s] on frame [%s]', h, this._cmd);
+      }
+      else {
+        this[h] = hv;
+      }
+    }
+
+    return null;
   }
 }
 
@@ -193,6 +240,7 @@ class StompSession extends EventEmitter {
     }
   }
 
+  
   ///////////////////////////////////////
   _clear_state () {
     this._read_buffer = Buffers();
@@ -201,19 +249,10 @@ class StompSession extends EventEmitter {
     this._in_frame = new Frame ();
   }
 
+
   ///////////////////////////////////////
   _semantic_validation () {
-    var must_have_headers = MandatoryHeaders[this._in_frame.command()];
-    if (!must_have_headers) return null;
-
-    for (var i = 0; i < must_have_headers.length; i++) {
-      var h = must_have_headers[i];
-      if (_.isUndefined (this._in_frame.header(h))) {
-        return util.format ('missing mandatory header [%s] on frame [%s]', h, this._in_frame.command());
-      }
-    }
-
-    return null;
+    return this._in_frame._semantic_validation ();
   }
 
 
@@ -270,7 +309,13 @@ class StompSession extends EventEmitter {
           }
           else {
             // TODO check header is not malformed
-            this._add_header_line (line);
+            try {
+              this._add_header_line (line);
+            }
+            catch (e) {
+              // bad header
+              this._manage_error (e);
+            }     
           }
           break;
 
@@ -316,6 +361,7 @@ class StompSession extends EventEmitter {
 
 
 module.exports = {
+  Commands: Commands,
   Frame: Frame,
   StompSession: StompSession
 };
