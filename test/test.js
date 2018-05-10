@@ -155,6 +155,7 @@ describe('STOMP frames', function () {
       var ss = new SF.StompSession(socket);
       ss.on ('error', function (e) {
         e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
+        ss.send_error (e);
         server.close (done);
       });
     });
@@ -175,6 +176,7 @@ describe('STOMP frames', function () {
       var ss = new SF.StompSession(socket);
       ss.on ('error', function (e) {
         e.toString().should.equal ('Error: unrecognized STOMP command nonvalid');
+        ss.send_error (e);
       });
     });
 

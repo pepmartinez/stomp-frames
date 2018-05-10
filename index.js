@@ -147,6 +147,13 @@ class Frame {
   }
 
   _semantic_validation () {
+    // header glitch: treat message-id as alias to id in ACK and NACK
+    if ((this._cmd == Commands.ACK) || (this._cmd == Commands.NACK)) {
+      var id = this.header ('id');
+      var msgid = this.header ('message-id');
+      if (!id && msgid) this.header ('id', msgid);
+    }
+
     var must_have_headers = MandatoryHeaders[this._cmd];
     if (!must_have_headers) return null;
 
@@ -173,8 +180,6 @@ class StompSession extends EventEmitter {
     super ();
     this._s = socket;
     this._clear_state();
-    
-    this._manage_errors = true;
 
     var self = this;
 
@@ -186,11 +191,6 @@ class StompSession extends EventEmitter {
     });
   }
 
-  manage_errors (v) {
-    if (v === true) this._manage_errors = true;
-    else if (v === false) this._manage_errors = false;
-    else return this._manage_errors;
-  }
 
   ///////////////////////////////
   _read_line () {
@@ -223,20 +223,26 @@ class StompSession extends EventEmitter {
     this._in_frame.header (k, v);
     return true;
   }
+ 
+  ///////////////////////////////////////
+  send_error (e) {
+    var f = new Frame ();
+    f.command (Commands.ERROR);
+    f.header ('message', e.message || e);
+    f.body (e.message || e);
+    f.write (this._s);
+    this._s.end ();
+  }
 
   ///////////////////////////////////////
   _manage_error (e) {
     this._clear_state ();
 
-    this.emit ('error', e);
-    
-    if (this._manage_errors) {
-      var f = new Frame ();
-      f.command (Commands.ERROR);
-      f.header ('message', e.message || e);
-      f.body (e.message || e);
-      f.write (this._s);
-      this._s.end ();
+    if (this.listenerCount ('error')) {
+      this.emit ('error', e);
+    }
+    else {
+      this.send_error (e);
     }
   }
 
@@ -287,7 +293,6 @@ class StompSession extends EventEmitter {
           if (line === null) return;  // not enough data
           if (line.length == 0) break; // empty lines before frame
 
-          // TODO check command is valid & known
           try {
             this._in_frame.command (line);
             this._read_stage = RS_HDRS;
@@ -308,7 +313,6 @@ class StompSession extends EventEmitter {
             //console.log ('hdrs read, now moving to RS_BODY');
           }
           else {
-            // TODO check header is not malformed
             try {
               this._add_header_line (line);
             }
