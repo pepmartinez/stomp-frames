@@ -1,9 +1,9 @@
 {
   "name": "stomp-frames",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "keywords": [
     "stomp",
-    "socket"
+    "stream"
   ],
   "homepage": "https://github.com/pepmartinez/stomp-frames",
   "bugs": {
