@@ -169,6 +169,41 @@ class Frame {
       }
     }
 
+    // post process
+    if (this['accept-version']) {
+      // break it down
+      let arr = this['accept-version'].split (',');
+      this['accept-version'] = {};
+      _.forEach (arr, v => {this['accept-version'][v.trim ()] = true;});
+    }
+
+    switch (this._cmd) {
+      case Commands.SUBSCRIBE:
+        let ack_hdr = this.header ('ack');
+        if (ack_hdr) {
+          if ((ack_hdr != 'auto') && (ack_hdr != 'client') && (ack_hdr != 'client-individual')) {
+            return util.format ('invalid value for ack header [%s] on frame [%s]', ack_hdr, this._cmd);
+          }
+
+          this.ack = ack_hdr;
+        }
+        break;
+
+      case Commands.CONNECT:
+      case Commands.STOMP:
+      case Commands.CONNECTED:
+        let hb_hdr = this.header ('heart-beat');
+        if (hb_hdr) {
+          if (!hb_hdr.match (/[0-9]+,[0-9]+/)) {
+            return util.format ('invalid value for heart-beat header [%s] on frame [%s]', hb_hdr, this._cmd);
+          }
+
+          let arr = hb_hdr.split(',');
+          this['heart-beat'] = [parseInt(arr[0]), parseInt(arr[1])];
+        }
+        break;
+    }
+
     return null;
   }
 }
