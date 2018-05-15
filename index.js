@@ -216,9 +216,12 @@ class StompSession extends EventEmitter {
     this._s = socket;
     this._clear_state();
 
-    var self = this;
+    this._last_read =  new Date();
+    this._last_write = new Date();
 
+    var self = this;
     this._s.on ('data', function (data) {
+      self._last_read = new Date();
       self._read_buffer.push (data);  
       
       // TODO check a max size is buffered only
@@ -226,7 +229,45 @@ class StompSession extends EventEmitter {
     });
   }
 
+  
+  ///////////////////////////////
+  end () {
+    this._s.end ();
+  }
+  
+  
+  ///////////////////////////////
+  destroy () {
+    this._s.destroy ();
+  }
+  
+  
+  ///////////////////////////////
+  last_read () {
+    return this._last_read;
+  }
+  
+  
+  ///////////////////////////////
+  last_write () {
+    return this._last_write;
+  }
 
+  
+  ///////////////////////////////
+  ping () {
+    // send EOL
+    this._s.write ('\n');
+    this._last_write = new Date();
+  }
+  
+  
+  ///////////////////////////////
+  send (frm) {
+    frm.write (this._s);
+    this._last_write = new Date();
+  }
+  
   ///////////////////////////////
   _read_line () {
     if (this._read_buffer.length <= (this._read_ptr + 1)) {
@@ -247,6 +288,7 @@ class StompSession extends EventEmitter {
     return line;
   }
 
+  
   ////////////////////////////////////////
   _add_header_line (line) {
     var sep = line.indexOf (':');
@@ -259,16 +301,18 @@ class StompSession extends EventEmitter {
     return true;
   }
  
+ 
   ///////////////////////////////////////
   send_error (e) {
     var f = new Frame ();
     f.command (Commands.ERROR);
     f.header ('message', e.message || e);
     f.body (e.message || e);
-    f.write (this._s);
-    this._s.end ();
+    this.send (f);
+    this._s.destroy ();
   }
 
+  
   ///////////////////////////////////////
   _manage_error (e) {
     this._clear_state ();
@@ -319,6 +363,7 @@ class StompSession extends EventEmitter {
     return true;
   }
 
+  
   ///////////////////////////////////////
   _incr_parse () {
     for (;;) {
