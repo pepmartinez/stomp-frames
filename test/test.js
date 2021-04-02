@@ -29,15 +29,15 @@ function frame() {
   var fr = new SF.Frame ();
 
   // get cmd
-  var cmd = chance.pickone([ 
-    'CONNECT', 
-    'STOMP', 
+  var cmd = chance.pickone([
+    'CONNECT',
+    'STOMP',
     'CONNECTED',
     'SEND',
     'SUBSCRIBE',
-    'UNSUBSCRIBE', 
+    'UNSUBSCRIBE',
     'ACK',
-    'NACK', 
+    'NACK',
     'BEGIN',
     'COMMIT',
     'ABORT',
@@ -45,14 +45,14 @@ function frame() {
     'MESSAGE',
     'RECEIPT',
     'ERROR']);
-  
+
   fr.command(cmd);
 
   // add some extra headers
   for (var i = 0; i < chance.d20(); i++) {
     fr.header(chance.word(), chance.word());
   }
-  
+
   // add mandatory headers
   _.forEach (MandatoryHeaders[cmd], function (hdr) {
     fr.header(hdr, chance.word());
@@ -117,13 +117,17 @@ describe('STOMP frames', function () {
     var server = net.createServer (function(socket) {
       var ss = new SF.StompSession(socket);
 
-      ss.on ('frame', function (f) {
-        frr.push (f);
+      ss.on ('frame', f => {
+        try {
+          frr.push (f);
 
-        if (frr.length == fr0.length) {
-          frr.should.eql (fr0);
-          socket.end();
-          server.close (done);
+          if (frr.length == fr0.length) {
+            frr.should.eql (fr0);
+            socket.end();
+            server.close (done);
+          }
+        } catch (e) {
+          done(e)
         }
       });
     });
@@ -132,8 +136,8 @@ describe('STOMP frames', function () {
 
 
     var client = new net.Socket();
-    client.connect(36667, '127.0.0.1', function() {
-      _.forEach (fr0, function (f) {f.write (client)});
+    client.connect(36667, '127.0.0.1', () => {
+      _.forEach (fr0, f => f.write (client));
     });
   });
 
@@ -188,11 +192,11 @@ describe('STOMP frames', function () {
       ss.on ('frame', function (fe) {
         fe.should.match ({
           _cmd: 'ERROR',
-          _headers: { 
+          _headers: {
             message: 'unrecognized STOMP command nonvalid',
-            'content-length': '35' 
+            'content-length': '35'
           },
-          _body: 'unrecognized STOMP command nonvalid' 
+          _body: 'unrecognized STOMP command nonvalid'
         });
 
         server.close (done);
@@ -201,6 +205,101 @@ describe('STOMP frames', function () {
       var fr = frame ();
       fr._cmd = 'nonvalid';
       fr.write (client);
+    });
+  });
+
+
+  it('does read frame with json body (as string)', done => {
+    var server = net.createServer (socket => {
+      var ss = new SF.StompSession (socket);
+
+      ss.on ('frame', f => {
+        f.command().should.equal ('MESSAGE');
+        f.destination.should.equal ('someplace');
+        f['message-id'].should.equal ('meself');
+        JSON.parse (f.body()).should.eql ({a:1, b:'qwerty'});
+        socket.end();
+        server.close (done);
+      });
+    });
+
+    server.listen(36667);
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', () => {
+      var f = new SF.Frame ();
+      f.command ('MESSAGE');
+      f.header ('destination', 'someplace');
+      f.header ('message-id', 'meself');
+      f.header ('subscription', 'foo weekly');
+      f.header ('content-type', 'application/json');
+      f.body (JSON.stringify ({a:1, b:'qwerty'}));
+      f.write (client);
+    });
+  });
+
+
+  it('does read frame with text/* body (as string)', done => {
+    var server = net.createServer (socket => {
+      var ss = new SF.StompSession (socket);
+
+      ss.on ('frame', f => {
+        f.command().should.equal ('MESSAGE');
+        f.destination.should.equal ('someplace');
+        f['message-id'].should.equal ('meself');
+        f.body().should.equal ('qwertyuiopasdfghjkl');
+        socket.end();
+        server.close (done);
+      });
+    });
+
+    server.listen(36667);
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', () => {
+      var f = new SF.Frame ();
+      f.command ('MESSAGE');
+      f.header ('destination', 'someplace');
+      f.header ('message-id', 'meself');
+      f.header ('subscription', 'foo weekly');
+      f.header ('content-type', 'text/plain');
+      f.body ('qwertyuiopasdfghjkl');
+      f.write (client);
+    });
+  });
+
+
+
+  it('does read frame with audio/mpeg body (as Buffer)', done => {
+    const hash = chance.hash ({length: 1212});
+    var server = net.createServer (socket => {
+      var ss = new SF.StompSession (socket);
+
+      ss.on ('frame', f => {
+        f.command().should.equal ('MESSAGE');
+        f.destination.should.equal ('someplace');
+        f['message-id'].should.equal ('meself');
+        f.subscription.should.equal ('foo weekly');
+        f.header ('content-type', 'audio/mpeg');
+        f.body().should.be.instanceof(Buffer);
+        f.body().toString ('hex').should.equal (hash);
+        socket.end();
+        server.close (done);
+      });
+    });
+
+    server.listen(36667);
+
+    var client = new net.Socket();
+    client.connect(36667, '127.0.0.1', () => {
+      var f = new SF.Frame ();
+      f.command ('MESSAGE');
+      f.header ('destination', 'someplace');
+      f.header ('message-id', 'meself');
+      f.header ('subscription', 'foo weekly');
+      f.header ('content-type', 'audio/mpeg');
+      f.body (Buffer.from (hash, 'hex'));
+      f.write (client);
     });
   });
 

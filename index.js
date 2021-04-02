@@ -61,30 +61,30 @@ class Frame {
   command (p) {
     if (p) {
       if (!Commands[p]) throw Error ('unrecognized STOMP command ' + p);
-      this._cmd = p; 
+      this._cmd = p;
     }
     else return this._cmd;
   }
 
   headers (p) {
-    if (p) this._headers = p; 
+    if (p) this._headers = p;
     else return this._headers;
   }
 
   body (p) {
-    if (p) this._body = p; 
+    if (p) this._body = p;
     else return this._body;
 
-    // TODO add encoding mgmt
+    //  TODO add encoding mgmt
   }
 
   header (k, v) {
-    if (v) this._headers[this._dec_hdr (k)] = this._dec_hdr (v); 
+    if (v) this._headers[this._dec_hdr (k)] = this._dec_hdr (v);
     else return this._headers[k];
   }
 
   ctype (v) {
-    if (v) this._headers['content-type'] = v; 
+    if (v) this._headers['content-type'] = v;
     else return this._headers['content-type'];
   }
 
@@ -107,7 +107,14 @@ class Frame {
     _.forEach (this._headers, (v, k) => b.push (Buffer.from (this._enc_hdr (k) + ':' + this._enc_hdr (v) + '\n')));
 
     if (this._body) {
-      b.push (Buffer.from ('\n' + this._body + '\0'));
+      if (_.isBuffer (this._body)){
+        b.push (Buffer.from ('\n'));
+        b.push (this._body);
+        b.push (Buffer.from ('\0'));
+      }
+      else {
+        b.push (Buffer.from ('\n' + this._body + '\0'));
+      }
     }
     else {
       b.push (Buffer.from ('\n\0'));
@@ -135,9 +142,9 @@ class Frame {
     var ret = v;
 
     _.forEach ({
-      '\\r': '\r', 
-      '\\n': '\n', 
-      '\\c': ':', 
+      '\\r': '\r',
+      '\\n': '\n',
+      '\\c': ':',
       '\\\\': '\\'
     }, function (sub_v, sub_k) {
       ret = ret.replace(sub_k, sub_v);
@@ -222,52 +229,52 @@ class StompSession extends EventEmitter {
     var self = this;
     this._s.on ('data', function (data) {
       self._last_read = new Date();
-      self._read_buffer.push (data);  
-      
+      self._read_buffer.push (data);
+
       // TODO check a max size is buffered only
       self._incr_parse ();
     });
   }
 
-  
+
   ///////////////////////////////
   end () {
     this._s.end ();
   }
-  
-  
+
+
   ///////////////////////////////
   destroy () {
     this._s.destroy ();
   }
-  
-  
+
+
   ///////////////////////////////
   last_read () {
     return this._last_read;
   }
-  
-  
+
+
   ///////////////////////////////
   last_write () {
     return this._last_write;
   }
 
-  
+
   ///////////////////////////////
   ping () {
     // send EOL
     this._s.write ('\n');
     this._last_write = new Date();
   }
-  
-  
+
+
   ///////////////////////////////
   send (frm) {
     frm.write (this._s);
     this._last_write = new Date();
   }
-  
+
   ///////////////////////////////
   _read_line () {
     if (this._read_buffer.length <= (this._read_ptr + 1)) {
@@ -288,7 +295,7 @@ class StompSession extends EventEmitter {
     return line;
   }
 
-  
+
   ////////////////////////////////////////
   _add_header_line (line) {
     var sep = line.indexOf (':');
@@ -300,8 +307,8 @@ class StompSession extends EventEmitter {
     this._in_frame.header (k, v);
     return true;
   }
- 
- 
+
+
   ///////////////////////////////////////
   send_error (e) {
     var f = new Frame ();
@@ -312,7 +319,7 @@ class StompSession extends EventEmitter {
     this._s.destroy ();
   }
 
-  
+
   ///////////////////////////////////////
   _manage_error (e) {
     this._clear_state ();
@@ -325,7 +332,7 @@ class StompSession extends EventEmitter {
     }
   }
 
-  
+
   ///////////////////////////////////////
   _clear_state () {
     this._read_buffer = Buffers();
@@ -363,7 +370,7 @@ class StompSession extends EventEmitter {
     return true;
   }
 
-  
+
   ///////////////////////////////////////
   _incr_parse () {
     for (;;) {
@@ -381,7 +388,7 @@ class StompSession extends EventEmitter {
           catch (e) {
             // unknown command:
             this._manage_error (e);
-          }        
+          }
           break;
 
         case RS_HDRS:
@@ -399,7 +406,7 @@ class StompSession extends EventEmitter {
             catch (e) {
               // bad header
               this._manage_error (e);
-            }     
+            }
           }
           break;
 
@@ -409,7 +416,7 @@ class StompSession extends EventEmitter {
             this._in_frame.clen = parseInt (this._in_frame.header ('content-length'));
             //console.log ('content-len seen to be %d', this._in_frame.clen);
             this._read_stage = RS_BODY_CL;
-          } 
+          }
           else {
             this._read_stage = RS_BODY_ZERO;
           }
@@ -418,8 +425,29 @@ class StompSession extends EventEmitter {
         case RS_BODY_CL:
           // console.log ('buffer remaining is %d bytes, need %d', this._read_buffer.length - this._read_ptr, this._in_frame.clen);
           if ((this._read_buffer.length - this._read_ptr) < (this._in_frame.clen + 1)) return;
-          this._in_frame.body (this._read_buffer.slice (this._read_ptr, this._in_frame.clen + this._read_ptr).toString ('utf8'));
-          
+
+          // TODO manage non-text bodies
+
+          const b_body = this._read_buffer.slice (this._read_ptr, this._in_frame.clen + this._read_ptr);
+          const ct = this._in_frame.header ('content-type');
+
+          if (ct) {
+            if (
+              ct.match (/^text\//) ||
+              ct.match (/^application\/json/)
+            ){
+              this._in_frame.body (b_body.toString ('utf8'));
+            }
+            else {
+              // as buffer if there's ctype but iy's not a text one
+              this._in_frame.body (b_body);
+            }
+          }
+          else {
+            // as string if there is no ctype
+            this._in_frame.body (b_body.toString ('utf8'));
+          }
+
           // reset buffer & ptr
           this._read_ptr = this._in_frame.clen + this._read_ptr + 1;
           this._got_a_frame ();
